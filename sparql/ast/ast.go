@@ -95,12 +95,12 @@ type And struct {
 
 type BinOp struct {
 	X   Expr
-	Tok string
+	Tok int
 	Y   Expr
 }
 
 type UnOp struct {
-	Tok string
+	Tok int
 	X   Expr
 }
 

@@ -5,13 +5,14 @@
 //
 // - compact forms of writing triples with repeated elements will be expanded during parsing
 // - numeric and boolean literals are transformed into typed literals, e.g. -5.0 becomes "-5.0"^^xsd:decimal
+// - comments are not preserved
 package main
 
 import (
 	"fmt"
-	"regexp"
 
 	"honnef.co/go/everything/sparql/ast"
+	"honnef.co/go/everything/sparql/scanner"
 
 	"github.com/shurcooL/go-goon"
 )
@@ -20,53 +21,11 @@ import (
 
 // TODO remove duplication between predictors and parsers.
 
-/*
-TODOs:
-   - A.2
-*/
-
-type token struct {
-	value string
-	kind  string
-}
-
-// OPT(dh): use an efficient lexer
-func Lex(in string) []token {
-	var tokens []token
-	emit := func(s, kind string) {
-		if kind == "whitespace" || kind == "comment" {
-			return
-		}
-		tokens = append(tokens, token{s, kind})
-	}
-
-	for len(in) > 0 {
-		var bestMatch struct {
-			s    string
-			kind string
-		}
-		for _, p := range patterns {
-			if m := p.r.FindString(in); m != "" {
-				if len(m) > len(bestMatch.s) {
-					bestMatch.s = m
-					bestMatch.kind = p.label
-				}
-			}
-		}
-		if bestMatch.kind != "" {
-			emit(bestMatch.s, bestMatch.kind)
-			in = in[len(bestMatch.s):]
-		} else {
-			panic(fmt.Sprintf("no token found at %q", in[0:10]))
-		}
-	}
-
-	return tokens
-}
+type token = scanner.Token
 
 type iter struct {
 	blankID int
-	tokens  []token
+	tokens  []scanner.Token
 }
 
 func (iter *iter) newBlankNode() ast.BlankNode {
@@ -82,51 +41,50 @@ func (iter *iter) next() token {
 
 func (iter *iter) peek() token {
 	if len(iter.tokens) == 0 {
-		return token{kind: "EOF"}
+		return token{Kind: scanner.EOF}
 	} else {
 		return iter.tokens[0]
 	}
 }
 
-func expect(tok token, kind string) token {
-	if tok.kind != kind {
-		panic(fmt.Sprintf("%q != %q", tok.kind, kind))
-	}
-	return tok
+func predictVar(tok token) bool                  { return tok.Kind == scanner.VAR1 || tok.Kind == scanner.VAR2 }
+func predictOrderClause(tok token) bool          { return tok.Kind == scanner.ORDER }
+func predictLimitClause(tok token) bool          { return tok.Kind == scanner.LIMIT }
+func predictOffsetClause(tok token) bool         { return tok.Kind == scanner.OFFSET }
+func predictBrackettedExpression(tok token) bool { return tok.Kind == scanner.LPAREN }
+func predictRegexExpression(tok token) bool      { return tok.Value == "REGEX" && tok.Kind == scanner.IDENT }
+func predictIRIrefOrFunction(tok token) bool     { return predictIRIref(tok) }
+func predictPrefixedName(tok token) bool {
+	return tok.Kind == scanner.PNAME_LN || tok.Kind == scanner.PNAME_NS
 }
-
-func predictVar(tok token) bool                      { return tok.kind == "VAR1" || tok.kind == "VAR2" }
-func predictOrderClause(tok token) bool              { return tok.value == "ORDER" }
-func predictLimitClause(tok token) bool              { return tok.value == "LIMIT" }
-func predictOffsetClause(tok token) bool             { return tok.value == "OFFSET" }
-func predictBrackettedExpression(tok token) bool     { return tok.value == "(" }
-func predictRegexExpression(tok token) bool          { return tok.value == "REGEX" }
-func predictIRIrefOrFunction(tok token) bool         { return predictIRIref(tok) }
-func predictPrefixedName(tok token) bool             { return tok.kind == "PNAME_LN" || tok.kind == "PNAME_NS" }
-func predictBaseDecl(tok token) bool                 { return tok.value == "BASE" }
-func predictPrefixDecl(tok token) bool               { return tok.value == "PREFIX" }
-func predictDatasetClause(tok token) bool            { return tok.value == "FROM" }
-func predictTriplesBlock(tok token) bool             { return predictTriplesSameSubject(tok) }
-func predictTriplesSameSubject(tok token) bool       { return predictVarOrTerm(tok) }
-func predictVarOrTerm(tok token) bool                { return predictVar(tok) || predictGraphTerm(tok) }
-func predictRDFLiteral(tok token) bool               { return predictString(tok) }
-func predictBooleanLiteral(tok token) bool           { return tok.value == "true" || tok.value == "false" }
-func predictBlankNode(tok token) bool                { return tok.kind == "BLANK_NODE_LABEL" || tok.kind == "ANON" }
+func predictBaseDecl(tok token) bool           { return tok.Kind == scanner.BASE }
+func predictPrefixDecl(tok token) bool         { return tok.Kind == scanner.PREFIX }
+func predictDatasetClause(tok token) bool      { return tok.Kind == scanner.FROM }
+func predictTriplesBlock(tok token) bool       { return predictTriplesSameSubject(tok) }
+func predictTriplesSameSubject(tok token) bool { return predictVarOrTerm(tok) }
+func predictVarOrTerm(tok token) bool          { return predictVar(tok) || predictGraphTerm(tok) }
+func predictRDFLiteral(tok token) bool         { return predictString(tok) }
+func predictBooleanLiteral(tok token) bool {
+	return (tok.Value == "true" || tok.Value == "false") && tok.Kind == scanner.IDENT
+} // XXX case insensitive
+func predictBlankNode(tok token) bool {
+	return tok.Kind == scanner.BLANK_NODE_LABEL || tok.Kind == scanner.ANON
+}
 func predictVarOrIRIref(tok token) bool              { return predictVar(tok) || predictIRIref(tok) }
-func predictCollection(tok token) bool               { return tok.value == "(" }
-func predictBlankNodePropertyList(tok token) bool    { return tok.value == "[" }
+func predictCollection(tok token) bool               { return tok.Kind == scanner.LPAREN }
+func predictBlankNodePropertyList(tok token) bool    { return tok.Kind == scanner.LBRACK }
 func predictGraphNode(tok token) bool                { return predictVarOrTerm(tok) || predictTriplesNode(tok) }
-func predictVerb(tok token) bool                     { return predictVarOrIRIref(tok) || tok.value == "a" }
+func predictVerb(tok token) bool                     { return predictVarOrIRIref(tok) || tok.Kind == scanner.A }
 func predictPropertyListNotEmpty(tok token) bool     { return predictVerb(tok) }
 func predictFunctionCall(tok token) bool             { return predictIRIref(tok) }
 func predictConstructTriples(tok token) bool         { return predictTriplesSameSubject(tok) }
-func predictOptionalGraphPattern(tok token) bool     { return tok.value == "OPTIONAL" }
+func predictOptionalGraphPattern(tok token) bool     { return tok.Kind == scanner.OPTIONAL }
 func predictGroupOrUnionGraphPattern(tok token) bool { return predictGroupGraphPattern(tok) }
-func predictGraphGraphPattern(tok token) bool        { return tok.value == "GRAPH" }
-func predictGroupGraphPattern(tok token) bool        { return tok.value == "{" }
-func predictFilter(tok token) bool                   { return tok.value == "FILTER" }
+func predictGraphGraphPattern(tok token) bool        { return tok.Kind == scanner.GRAPH }
+func predictGroupGraphPattern(tok token) bool        { return tok.Kind == scanner.LBRACE }
+func predictFilter(tok token) bool                   { return tok.Kind == scanner.FILTER }
 func predictDefaultGraphClause(tok token) bool       { return predictSourceSelector(tok) }
-func predictNamedGraphClause(tok token) bool         { return tok.value == "NAMED" }
+func predictNamedGraphClause(tok token) bool         { return tok.Kind == scanner.NAMED }
 func predictSourceSelector(tok token) bool           { return predictIRIref(tok) }
 
 func predictTriplesNode(tok token) bool {
@@ -134,14 +92,14 @@ func predictTriplesNode(tok token) bool {
 }
 
 func predictIRIref(tok token) bool {
-	if tok.kind == "IRI_REF" {
+	if tok.Kind == scanner.IRI_REF {
 		return true
 	}
 	return predictPrefixedName(tok)
 }
 
 func predictGraphTerm(tok token) bool {
-	return predictIRIref(tok) || predictRDFLiteral(tok) || predictNumericLiteral(tok) || predictBooleanLiteral(tok) || predictBlankNode(tok) || tok.kind == "NIL"
+	return predictIRIref(tok) || predictRDFLiteral(tok) || predictNumericLiteral(tok) || predictBooleanLiteral(tok) || predictBlankNode(tok) || tok.Kind == scanner.NIL
 }
 
 func predictNumericLiteral(tok token) bool {
@@ -149,8 +107,8 @@ func predictNumericLiteral(tok token) bool {
 }
 
 func predictNumericLiteralUnsigned(tok token) bool {
-	switch tok.kind {
-	case "INTEGER", "DECIMAL", "DOUBLE":
+	switch tok.Kind {
+	case scanner.INTEGER, scanner.DECIMAL, scanner.DOUBLE:
 		return true
 	default:
 		return false
@@ -158,8 +116,8 @@ func predictNumericLiteralUnsigned(tok token) bool {
 }
 
 func predictNumericLiteralPositive(tok token) bool {
-	switch tok.kind {
-	case "INTEGER_POSITIVE", "DECIMAL_POSITIVE", "DOUBLE_POSITIVE":
+	switch tok.Kind {
+	case scanner.INTEGER_POSITIVE, scanner.DECIMAL_POSITIVE, scanner.DOUBLE_POSITIVE:
 		return true
 	default:
 		return false
@@ -167,8 +125,8 @@ func predictNumericLiteralPositive(tok token) bool {
 }
 
 func predictNumericLiteralNegative(tok token) bool {
-	switch tok.kind {
-	case "INTEGER_NEGATIVE", "DECIMAL_NEGATIVE", "DOUBLE_NEGATIVE":
+	switch tok.Kind {
+	case scanner.INTEGER_NEGATIVE, scanner.DECIMAL_NEGATIVE, scanner.DOUBLE_NEGATIVE:
 		return true
 	default:
 		return false
@@ -176,8 +134,8 @@ func predictNumericLiteralNegative(tok token) bool {
 }
 
 func predictString(tok token) bool {
-	switch tok.kind {
-	case "STRING_LITERAL1", "STRING_LITERAL2", "STRING_LITERAL_LONG1", "STRING_LITERAL_LONG2":
+	switch tok.Kind {
+	case scanner.STRING_LITERAL1, scanner.STRING_LITERAL2, scanner.STRING_LITERAL_LONG1, scanner.STRING_LITERAL_LONG2:
 		return true
 	default:
 		return false
@@ -193,20 +151,22 @@ func predictPrimaryExpression(tok token) bool {
 }
 
 func predictBuiltInCall(tok token) bool {
-	switch tok.value {
-	case "STR", "LANG", "LANGMATCHES", "DATATYPE", "BOUND", "sameTerm", "isIRI", "isURI", "isBLANK", "isLITERAL":
-		return true
+	if tok.Kind == scanner.IDENT {
+		switch tok.Value {
+		case "STR", "LANG", "LANGMATCHES", "DATATYPE", "BOUND", "sameTerm", "isIRI", "isURI", "isBLANK", "isLITERAL": // XXX case insensitive
+			return true
+		}
 	}
 
 	return predictRegexExpression(tok)
 }
 
 func predictArgList(tok token) bool {
-	return tok.kind == "NIL" || tok.value == "("
+	return tok.Kind == scanner.NIL || tok.Kind == scanner.LPAREN
 }
 
 func predictOrderCondition(tok token) bool {
-	return tok.value == "ASC" || tok.value == "DESC" || predictConstraint(tok) || predictVar(tok)
+	return tok.Kind == scanner.ASC || tok.Kind == scanner.DESC || predictConstraint(tok) || predictVar(tok)
 }
 
 func predictConstraint(tok token) bool {
@@ -214,7 +174,7 @@ func predictConstraint(tok token) bool {
 }
 
 func predictWhereClause(tok token) bool {
-	return tok.value == "WHERE" || predictGroupGraphPattern(tok)
+	return tok.Kind == scanner.WHERE || predictGroupGraphPattern(tok)
 }
 
 func predictGraphPatternNotTriples(tok token) bool {
@@ -242,10 +202,10 @@ func VarOrTerm(iter *iter) ast.Node {
 
 func Var(iter *iter) ast.Var {
 	tok := iter.next()
-	if tok.kind != "VAR1" && tok.kind != "VAR2" {
+	if tok.Kind != scanner.VAR1 && tok.Kind != scanner.VAR2 {
 		panic(fmt.Sprintf("unexpected token %v", tok))
 	}
-	return ast.Var(tok.value[1:])
+	return ast.Var(tok.Value[1:])
 }
 
 func GraphTerm(iter *iter) ast.Node {
@@ -260,7 +220,7 @@ func GraphTerm(iter *iter) ast.Node {
 		return BooleanLiteral(iter)
 	} else if predictBlankNode(tok) {
 		return BlankNode(iter)
-	} else if tok.kind == "NIL" {
+	} else if tok.Kind == scanner.NIL {
 		iter.next()
 		return ast.IRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil")
 	} else {
@@ -269,16 +229,16 @@ func GraphTerm(iter *iter) ast.Node {
 }
 
 func BaseDecl(iter *iter) ast.IRI {
-	requireValue(iter, "BASE")
+	requireToken(iter, scanner.BASE)
 
-	return ast.IRI(requireKind(iter, "IRI_REF").value)
+	return ast.IRI(requireToken(iter, scanner.IRI_REF).Value)
 }
 
 func PrefixDecl(iter *iter) ast.Prefix {
 	iter.next()
 	return ast.Prefix{
-		Name: expect(iter.next(), "PNAME_NS").value,
-		IRI:  ast.IRI(expect(iter.next(), "IRI_REF").value),
+		Name: requireToken(iter, scanner.PNAME_NS).Value,
+		IRI:  ast.IRI(requireToken(iter, scanner.IRI_REF).Value),
 	}
 }
 
@@ -300,7 +260,7 @@ func DefaultGraphClause(iter *iter) ast.From {
 }
 
 func NamedGraphClause(iter *iter) ast.From {
-	requireValue(iter, "NAMED")
+	requireToken(iter, scanner.NAMED)
 	return ast.From{
 		Named: true,
 		IRI:   SourceSelector(iter),
@@ -312,7 +272,7 @@ func SourceSelector(iter *iter) ast.IRIref {
 }
 
 func DatasetClause(iter *iter) ast.From {
-	requireValue(iter, "FROM")
+	requireToken(iter, scanner.FROM)
 
 	tok := iter.peek()
 	if predictDefaultGraphClause(tok) {
@@ -326,11 +286,11 @@ func DatasetClause(iter *iter) ast.From {
 
 func PrefixedName(iter *iter) ast.PrefixedName {
 	tok := iter.peek()
-	switch tok.kind {
-	case "PNAME_LN":
-		return ast.PrefixedName(iter.next().value)
-	case "PNAME_NS":
-		return ast.PrefixedName(iter.next().value)
+	switch tok.Kind {
+	case scanner.PNAME_LN:
+		return ast.PrefixedName(iter.next().Value)
+	case scanner.PNAME_NS:
+		return ast.PrefixedName(iter.next().Value)
 	default:
 		panic(fmt.Sprintf("unexpected token %v", tok))
 	}
@@ -338,8 +298,8 @@ func PrefixedName(iter *iter) ast.PrefixedName {
 
 func IRIref(iter *iter) ast.IRIref {
 	tok := iter.peek()
-	if tok.kind == "IRI_REF" {
-		return ast.IRI(iter.next().value)
+	if tok.Kind == scanner.IRI_REF {
+		return ast.IRI(iter.next().Value)
 	} else if predictPrefixedName(tok) {
 		return PrefixedName(iter)
 	} else {
@@ -349,11 +309,11 @@ func IRIref(iter *iter) ast.IRIref {
 
 func String(iter *iter) string {
 	tok := iter.peek()
-	switch tok.kind {
-	case "STRING_LITERAL1", "STRING_LITERAL2", "STRING_LITERAL_LONG1", "STRING_LITERAL_LONG2":
+	switch tok.Kind {
+	case scanner.STRING_LITERAL1, scanner.STRING_LITERAL2, scanner.STRING_LITERAL_LONG1, scanner.STRING_LITERAL_LONG2:
 		tok := iter.next()
 		// XXX strip quotes
-		return tok.value
+		return tok.Value
 	default:
 		panic(fmt.Sprintf("unexpected token %v", tok))
 	}
@@ -365,9 +325,9 @@ func RDFLiteral(iter *iter) ast.RDFLiteral {
 	var typ ast.IRIref
 
 	tok := iter.peek()
-	if tok.kind == "LANGTAG" {
-		lang = iter.next().value[1:]
-	} else if tok.value == "^^" {
+	if tok.Kind == scanner.LANGTAG {
+		lang = iter.next().Value[1:]
+	} else if tok.Kind == scanner.TYPE {
 		iter.next()
 		typ = IRIref(iter)
 	}
@@ -378,20 +338,20 @@ func RDFLiteral(iter *iter) ast.RDFLiteral {
 
 func NumericLiteralUnsigned(iter *iter) ast.RDFLiteral {
 	tok := iter.peek()
-	switch tok.kind {
-	case "INTEGER":
+	switch tok.Kind {
+	case scanner.INTEGER:
 		return ast.RDFLiteral{
-			Value: iter.next().value,
+			Value: iter.next().Value,
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#integer"),
 		}
-	case "DECIMAL":
+	case scanner.DECIMAL:
 		return ast.RDFLiteral{
-			Value: iter.next().value,
+			Value: iter.next().Value,
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#decimal"),
 		}
-	case "DOUBLE":
+	case scanner.DOUBLE:
 		return ast.RDFLiteral{
-			Value: iter.next().value,
+			Value: iter.next().Value,
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#double"),
 		}
 	default:
@@ -401,20 +361,20 @@ func NumericLiteralUnsigned(iter *iter) ast.RDFLiteral {
 
 func NumericLiteralPositive(iter *iter) ast.RDFLiteral {
 	tok := iter.peek()
-	switch tok.kind {
-	case "INTEGER_POSITIVE":
+	switch tok.Kind {
+	case scanner.INTEGER_POSITIVE:
 		return ast.RDFLiteral{
-			Value: iter.next().value[1:],
+			Value: iter.next().Value[1:],
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#integer"),
 		}
-	case "DECIMAL_POSITIVE":
+	case scanner.DECIMAL_POSITIVE:
 		return ast.RDFLiteral{
-			Value: iter.next().value[1:],
+			Value: iter.next().Value[1:],
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#decimal"),
 		}
-	case "DOUBLE_POSITIVE":
+	case scanner.DOUBLE_POSITIVE:
 		return ast.RDFLiteral{
-			Value: iter.next().value[1:],
+			Value: iter.next().Value[1:],
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#double"),
 		}
 	default:
@@ -424,20 +384,20 @@ func NumericLiteralPositive(iter *iter) ast.RDFLiteral {
 
 func NumericLiteralNegative(iter *iter) ast.RDFLiteral {
 	tok := iter.peek()
-	switch tok.kind {
-	case "INTEGER_NEGATIVE":
+	switch tok.Kind {
+	case scanner.INTEGER_NEGATIVE:
 		return ast.RDFLiteral{
-			Value: iter.next().value,
+			Value: iter.next().Value,
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#integer"),
 		}
-	case "DECIMAL_NEGATIVE":
+	case scanner.DECIMAL_NEGATIVE:
 		return ast.RDFLiteral{
-			Value: iter.next().value,
+			Value: iter.next().Value,
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#decimal"),
 		}
-	case "DOUBLE_NEGATIVE":
+	case scanner.DOUBLE_NEGATIVE:
 		return ast.RDFLiteral{
-			Value: iter.next().value,
+			Value: iter.next().Value,
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#double"),
 		}
 	default:
@@ -460,14 +420,17 @@ func NumericLiteral(iter *iter) ast.RDFLiteral {
 
 func BooleanLiteral(iter *iter) ast.RDFLiteral {
 	tok := iter.peek()
-	switch tok.value {
-	case "true":
+	if tok.Kind != scanner.IDENT {
+		panic(fmt.Sprintf("unexpected token %v", tok))
+	}
+	switch tok.Value {
+	case "true": // XXX
 		iter.next()
 		return ast.RDFLiteral{
 			Value: "true",
 			Type:  ast.IRI("http://www.w3.org/2001/XMLSchema#boolean"),
 		}
-	case "false":
+	case "false": // XXX
 		iter.next()
 		return ast.RDFLiteral{
 			Value: "false",
@@ -480,14 +443,14 @@ func BooleanLiteral(iter *iter) ast.RDFLiteral {
 
 func BlankNode(iter *iter) ast.Node {
 	tok := iter.peek()
-	switch tok.kind {
-	case "BLANK_NODE_LABEL":
+	switch tok.Kind {
+	case scanner.BLANK_NODE_LABEL:
 		iter.next()
 		return iter.newBlankNode()
-	case "ANON":
+	case scanner.ANON:
 		tok := iter.next()
 		return ast.NamedBlankNode{
-			Name: tok.value,
+			Name: tok.Value,
 		}
 	default:
 		panic(fmt.Sprintf("unexpected token %v", tok))
@@ -509,7 +472,7 @@ func Verb(iter *iter) ast.Node {
 	tok := iter.peek()
 	if predictVarOrIRIref(tok) {
 		return VarOrIRIref(iter)
-	} else if tok.value == "a" {
+	} else if tok.Kind == scanner.A {
 		iter.next()
 		return ast.IRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
 	} else {
@@ -520,27 +483,18 @@ func Verb(iter *iter) ast.Node {
 func Collection(iter *iter) {
 	panic("collections are unsupported")
 
-	requireValue(iter, "(")
+	requireToken(iter, scanner.LPAREN)
 	GraphNode(iter)
 	for tok := iter.peek(); predictGraphNode(tok); tok = iter.peek() {
 		GraphNode(iter)
 	}
-	requireValue(iter, ")")
+	requireToken(iter, scanner.RPAREN)
 }
 
 func BlankNodePropertyList(iter *iter) []verbObject {
-	tok := iter.next()
-	if tok.value != "[" {
-		panic(fmt.Sprintf("unexpected token %v", tok))
-	}
-
+	requireToken(iter, scanner.LBRACK)
 	vos := PropertyListNotEmpty(iter)
-
-	tok = iter.next()
-	if tok.value != "]" {
-		panic(fmt.Sprintf("unexpected token %v", tok))
-	}
-
+	requireToken(iter, scanner.RBRACK)
 	return vos
 }
 
@@ -564,7 +518,7 @@ func Object(iter *iter) ast.Node {
 func ObjectList(iter *iter) []ast.Node {
 	var objects []ast.Node
 	objects = append(objects, Object(iter))
-	for tok := iter.peek(); tok.value == ","; tok = iter.peek() {
+	for tok := iter.peek(); tok.Kind == scanner.COMMA; tok = iter.peek() {
 		iter.next()
 		objects = append(objects, Object(iter))
 	}
@@ -584,7 +538,7 @@ func PropertyListNotEmpty(iter *iter) []verbObject {
 	for _, object := range objects {
 		vos = append(vos, verbObject{verb, object})
 	}
-	for tok := iter.peek(); tok.value == ";"; tok = iter.peek() {
+	for tok := iter.peek(); tok.Kind == scanner.SEMICOLON; tok = iter.peek() {
 		iter.next()
 		if predictVerb(iter.peek()) {
 			verb := Verb(iter)
@@ -643,7 +597,7 @@ func TriplesSameSubject(iter *iter) []ast.Triple {
 
 func TriplesBlock(iter *iter) []ast.Triple {
 	out := TriplesSameSubject(iter)
-	if iter.peek().value == "." {
+	if iter.peek().Kind == scanner.PERIOD {
 		iter.next()
 		if predictTriplesBlock(iter.peek()) {
 			out = append(out, TriplesBlock(iter)...)
@@ -653,7 +607,7 @@ func TriplesBlock(iter *iter) []ast.Triple {
 }
 
 func OptionalGraphPattern(iter *iter) ast.GroupGraphPattern {
-	requireValue(iter, "OPTIONAL")
+	requireToken(iter, scanner.OPTIONAL)
 	ggp := GroupGraphPattern(iter)
 	ggp.Optional = true
 	return ggp
@@ -662,7 +616,7 @@ func OptionalGraphPattern(iter *iter) ast.GroupGraphPattern {
 func GroupOrUnionGraphPattern(iter *iter) ast.Node {
 	var patterns []ast.GroupGraphPattern
 	patterns = append(patterns, GroupGraphPattern(iter))
-	for tok := iter.peek(); tok.value == "UNION"; tok = iter.peek() {
+	for tok := iter.peek(); tok.Kind == scanner.UNION; tok = iter.peek() {
 		iter.next()
 		patterns = append(patterns, GroupGraphPattern(iter))
 	}
@@ -674,7 +628,7 @@ func GroupOrUnionGraphPattern(iter *iter) ast.Node {
 }
 
 func GraphGraphPattern(iter *iter) ast.GraphGraphPattern {
-	requireValue(iter, "GRAPH")
+	requireToken(iter, scanner.GRAPH)
 	return ast.GraphGraphPattern{
 		Name:    VarOrIRIref(iter),
 		Pattern: GroupGraphPattern(iter),
@@ -695,12 +649,12 @@ func GraphPatternNotTriples(iter *iter) ast.Node {
 }
 
 func Filter(iter *iter) ast.Expr {
-	requireValue(iter, "FILTER")
+	requireToken(iter, scanner.FILTER)
 	return Constraint(iter)
 }
 
 func GroupGraphPattern(iter *iter) ast.GroupGraphPattern {
-	requireValue(iter, "{")
+	requireToken(iter, scanner.LBRACE)
 
 	root := ast.GroupGraphPattern{}
 	basic := ast.BasicGraphPattern{}
@@ -724,7 +678,7 @@ func GroupGraphPattern(iter *iter) ast.GroupGraphPattern {
 		} else {
 			break
 		}
-		optionalValue(iter, ".")
+		optionalToken(iter, scanner.PERIOD)
 		if predictTriplesBlock(iter.peek()) {
 			basic.Patterns = append(basic.Patterns, TriplesBlock(iter)...)
 		}
@@ -734,32 +688,32 @@ func GroupGraphPattern(iter *iter) ast.GroupGraphPattern {
 		root.Patterns = append(root.Patterns, basic)
 	}
 
-	requireValue(iter, "}")
+	requireToken(iter, scanner.RBRACE)
 
 	return root
 }
 
 func WhereClause(iter *iter) ast.GroupGraphPattern {
 	tok := iter.peek()
-	if tok.value == "WHERE" {
+	if tok.Kind == scanner.WHERE {
 		iter.next()
 	}
 
 	return GroupGraphPattern(iter)
 }
 
-func requireValue(iter *iter, value string) {
+func requireIdent(iter *iter, value string) {
 	tok := iter.peek()
-	if tok.value == value {
+	if tok.Value == value && tok.Kind == scanner.IDENT {
 		iter.next()
 	} else {
 		panic(fmt.Sprintf("unexpected token %v", tok))
 	}
 }
 
-func optionalValue(iter *iter, value string) bool {
+func optionalToken(iter *iter, kind int) bool {
 	tok := iter.peek()
-	if tok.value == value {
+	if tok.Kind == kind {
 		iter.next()
 		return true
 	} else {
@@ -767,9 +721,9 @@ func optionalValue(iter *iter, value string) bool {
 	}
 }
 
-func requireKind(iter *iter, kind string) token {
+func requireToken(iter *iter, kind int) token {
 	tok := iter.peek()
-	if tok.kind == kind {
+	if tok.Kind == kind {
 		return iter.next()
 	} else {
 		panic(fmt.Sprintf("unexpected token %v", tok))
@@ -779,48 +733,48 @@ func requireKind(iter *iter, kind string) token {
 func RegexExpression(iter *iter) ast.Regex {
 	node := ast.Regex{}
 
-	requireValue(iter, "REGEX")
-	requireValue(iter, "(")
+	requireIdent(iter, "REGEX")
+	requireToken(iter, scanner.LPAREN)
 	node.String = Expression(iter)
-	requireValue(iter, ",")
+	requireToken(iter, scanner.COMMA)
 	node.Pattern = Expression(iter)
-	if iter.peek().value == "," {
+	if iter.peek().Kind == scanner.COMMA {
 		iter.next()
 		node.Flags = Expression(iter)
 	}
-	requireValue(iter, ")")
+	requireToken(iter, scanner.RPAREN)
 
 	return node
 }
 
 func BuiltInCall(iter *iter) ast.Expr {
 	tok := iter.peek()
-	switch tok.value {
-	case "STR", "LANG", "DATATYPE", "isIRI", "isURI", "isBLANK", "isLiteral":
-		fn := iter.next().value
-		requireValue(iter, "(")
+	switch tok.Value {
+	case "STR", "LANG", "DATATYPE", "isIRI", "isURI", "isBLANK", "isLiteral": // XXX case insensitive
+		fn := iter.next().Value
+		requireToken(iter, scanner.LPAREN)
 		arg1 := Expression(iter)
-		requireValue(iter, ")")
+		requireToken(iter, scanner.RPAREN)
 		return ast.Call{
 			Func: ast.Builtin{Name: fn},
 			Args: []ast.Expr{arg1},
 		}
 	case "LANGMATCHES", "sameTerm":
-		fn := iter.next().value
-		requireValue(iter, "(")
+		fn := iter.next().Value
+		requireToken(iter, scanner.LPAREN)
 		arg1 := Expression(iter)
-		requireValue(iter, ",")
+		requireToken(iter, scanner.COMMA)
 		arg2 := Expression(iter)
-		requireValue(iter, ")")
+		requireToken(iter, scanner.RPAREN)
 		return ast.Call{
 			Func: ast.Builtin{Name: fn},
 			Args: []ast.Expr{arg1, arg2},
 		}
 	case "BOUND":
 		iter.next()
-		requireValue(iter, "(")
+		requireToken(iter, scanner.LPAREN)
 		arg1 := Var(iter)
-		requireValue(iter, ")")
+		requireToken(iter, scanner.RPAREN)
 		return ast.Call{
 			Func: ast.Builtin{Name: "BOUND"},
 			Args: []ast.Expr{arg1},
@@ -836,18 +790,18 @@ func BuiltInCall(iter *iter) ast.Expr {
 
 func ArgList(iter *iter) []ast.Expr {
 	tok := iter.peek()
-	if tok.kind == "NIL" {
+	if tok.Kind == scanner.NIL {
 		iter.next()
 		return []ast.Expr{}
-	} else if tok.value == "(" {
+	} else if tok.Kind == scanner.LPAREN {
 		iter.next()
 		var args []ast.Expr
 		args = append(args, Expression(iter))
-		for tok := iter.peek(); tok.value == ","; tok = iter.peek() {
+		for tok := iter.peek(); tok.Kind == scanner.COMMA; tok = iter.peek() {
 			iter.next()
 			args = append(args, Expression(iter))
 		}
-		requireValue(iter, ")")
+		requireToken(iter, scanner.RPAREN)
 		return args
 	} else {
 		panic(fmt.Sprintf("unexpected token %v", tok))
@@ -890,15 +844,15 @@ func PrimaryExpression(iter *iter) ast.Expr {
 
 func UnaryExpression(iter *iter) ast.Expr {
 	tok := iter.peek()
-	if tok.value == "!" {
+	if tok.Kind == scanner.NOT {
 		iter.next()
-		return ast.UnOp{Tok: "!", X: PrimaryExpression(iter)}
-	} else if tok.value == "+" {
+		return ast.UnOp{Tok: scanner.NOT, X: PrimaryExpression(iter)}
+	} else if tok.Kind == scanner.ADD {
 		iter.next()
-		return ast.UnOp{Tok: "+", X: PrimaryExpression(iter)}
-	} else if tok.value == "-" {
+		return ast.UnOp{Tok: scanner.ADD, X: PrimaryExpression(iter)}
+	} else if tok.Kind == scanner.SUB {
 		iter.next()
-		return ast.UnOp{Tok: "-", X: PrimaryExpression(iter)}
+		return ast.UnOp{Tok: scanner.SUB, X: PrimaryExpression(iter)}
 	} else if predictPrimaryExpression(tok) {
 		return PrimaryExpression(iter)
 	} else {
@@ -911,12 +865,12 @@ func MultiplicativeExpression(iter *iter) ast.Expr {
 
 	for {
 		tok := iter.peek()
-		if tok.value == "*" {
+		if tok.Kind == scanner.MUL {
 			iter.next()
-			expr = ast.BinOp{X: expr, Tok: "*", Y: UnaryExpression(iter)}
-		} else if tok.value == "/" {
+			expr = ast.BinOp{X: expr, Tok: scanner.MUL, Y: UnaryExpression(iter)}
+		} else if tok.Kind == scanner.QUO {
 			iter.next()
-			expr = ast.BinOp{X: expr, Tok: "/", Y: UnaryExpression(iter)}
+			expr = ast.BinOp{X: expr, Tok: scanner.QUO, Y: UnaryExpression(iter)}
 		} else {
 			break
 		}
@@ -930,18 +884,18 @@ func AdditiveExpression(iter *iter) ast.Expr {
 
 	for {
 		tok := iter.peek()
-		switch tok.value {
-		case "+":
+		switch tok.Kind {
+		case scanner.ADD:
 			iter.next()
-			expr = ast.BinOp{X: expr, Tok: "+", Y: MultiplicativeExpression(iter)}
-		case "-":
+			expr = ast.BinOp{X: expr, Tok: scanner.ADD, Y: MultiplicativeExpression(iter)}
+		case scanner.SUB:
 			iter.next()
-			expr = ast.BinOp{X: expr, Tok: "-", Y: MultiplicativeExpression(iter)}
+			expr = ast.BinOp{X: expr, Tok: scanner.SUB, Y: MultiplicativeExpression(iter)}
 		}
 		if predictNumericLiteralPositive(tok) {
-			expr = ast.BinOp{X: expr, Tok: "+", Y: NumericLiteralPositive(iter)}
+			expr = ast.BinOp{X: expr, Tok: scanner.ADD, Y: NumericLiteralPositive(iter)}
 		} else if predictNumericLiteralNegative(tok) {
-			expr = ast.BinOp{X: expr, Tok: "-", Y: NumericLiteralNegative(iter)}
+			expr = ast.BinOp{X: expr, Tok: scanner.SUB, Y: NumericLiteralNegative(iter)}
 		} else {
 			break
 		}
@@ -958,25 +912,10 @@ func RelationalExpression(iter *iter) ast.Expr {
 	expr := NumericExpression(iter)
 
 	tok := iter.peek()
-	switch tok.value {
-	case "=":
+	switch tok.Kind {
+	case scanner.EQL, scanner.NEQ, scanner.LSS, scanner.GTR, scanner.LEQ, scanner.GEQ:
 		iter.next()
-		return ast.BinOp{X: expr, Tok: "=", Y: NumericExpression(iter)}
-	case "!=":
-		iter.next()
-		return ast.BinOp{X: expr, Tok: "!=", Y: NumericExpression(iter)}
-	case "<":
-		iter.next()
-		return ast.BinOp{X: expr, Tok: "<", Y: NumericExpression(iter)}
-	case ">":
-		iter.next()
-		return ast.BinOp{X: expr, Tok: ">", Y: NumericExpression(iter)}
-	case "<=":
-		iter.next()
-		return ast.BinOp{X: expr, Tok: "<=", Y: NumericExpression(iter)}
-	case ">=":
-		iter.next()
-		return ast.BinOp{X: expr, Tok: ">=", Y: NumericExpression(iter)}
+		return ast.BinOp{X: expr, Tok: tok.Kind, Y: NumericExpression(iter)}
 	default:
 		return expr
 	}
@@ -988,7 +927,7 @@ func ValueLogical(iter *iter) ast.Expr {
 
 func ConditionalAndExpression(iter *iter) ast.Expr {
 	expr := ValueLogical(iter)
-	for tok := iter.peek(); tok.value == "&&"; tok = iter.peek() {
+	for tok := iter.peek(); tok.Kind == scanner.LAND; tok = iter.peek() {
 		iter.next()
 		expr = ast.And{X: expr, Y: ValueLogical(iter)}
 	}
@@ -997,7 +936,7 @@ func ConditionalAndExpression(iter *iter) ast.Expr {
 
 func ConditionalOrExpression(iter *iter) ast.Expr {
 	expr := ConditionalAndExpression(iter)
-	for tok := iter.peek(); tok.value == "||"; tok = iter.peek() {
+	for tok := iter.peek(); tok.Kind == scanner.LOR; tok = iter.peek() {
 		iter.next()
 		expr = ast.Or{X: expr, Y: ConditionalAndExpression(iter)}
 	}
@@ -1009,9 +948,9 @@ func Expression(iter *iter) ast.Node {
 }
 
 func BrackettedExpression(iter *iter) ast.Expr {
-	requireValue(iter, "(")
+	requireToken(iter, scanner.LPAREN)
 	expr := Expression(iter)
-	requireValue(iter, ")")
+	requireToken(iter, scanner.RPAREN)
 	return expr
 }
 
@@ -1036,8 +975,8 @@ func Constraint(iter *iter) ast.Expr {
 
 func OrderCondition(iter *iter) ast.OrderCondition {
 	tok := iter.peek()
-	if tok.value == "ASC" || tok.value == "DESC" {
-		dir := iter.next().value
+	if tok.Kind == scanner.ASC || tok.Kind == scanner.DESC {
+		dir := iter.next().Value
 		expr := BrackettedExpression(iter)
 		return ast.OrderCondition{
 			Direction:  dir,
@@ -1053,8 +992,8 @@ func OrderCondition(iter *iter) ast.OrderCondition {
 }
 
 func OrderClause(iter *iter) []ast.OrderCondition {
-	requireValue(iter, "ORDER")
-	requireValue(iter, "BY")
+	requireToken(iter, scanner.ORDER)
+	requireToken(iter, scanner.BY)
 
 	var out []ast.OrderCondition
 
@@ -1066,17 +1005,17 @@ func OrderClause(iter *iter) []ast.OrderCondition {
 }
 
 func LimitClause(iter *iter) ast.RDFLiteral {
-	requireValue(iter, "LIMIT")
+	requireToken(iter, scanner.LIMIT)
 	return ast.RDFLiteral{
-		Value: requireKind(iter, "INTEGER").value,
+		Value: requireToken(iter, scanner.INTEGER).Value,
 		Type:  "http://www.w3.org/2001/XMLSchema#integer",
 	}
 }
 
 func OffsetClause(iter *iter) ast.RDFLiteral {
-	requireValue(iter, "OFFSET")
+	requireToken(iter, scanner.OFFSET)
 	return ast.RDFLiteral{
-		Value: requireKind(iter, "INTEGER").value,
+		Value: requireToken(iter, scanner.INTEGER).Value,
 		Type:  "http://www.w3.org/2001/XMLSchema#integer",
 	}
 }
@@ -1115,10 +1054,10 @@ func SelectQuery(iter *iter) ast.SelectQuery {
 
 	iter.next()
 	tok := iter.peek()
-	if tok.value == "DISTINCT" {
+	if tok.Kind == scanner.DISTINCT {
 		iter.next()
 		query.Distinct = true
-	} else if tok.value == "REDUCED" {
+	} else if tok.Kind == scanner.REDUCED {
 		iter.next()
 		query.Reduced = true
 	}
@@ -1128,7 +1067,7 @@ func SelectQuery(iter *iter) ast.SelectQuery {
 		for tok := iter.peek(); predictVar(tok); tok = iter.peek() {
 			query.Variables = append(query.Variables, Var(iter))
 		}
-	} else if tok.value == "*" {
+	} else if tok.Kind == scanner.MUL {
 		iter.next()
 		query.VarStar = true
 	} else {
@@ -1148,7 +1087,7 @@ func SelectQuery(iter *iter) ast.SelectQuery {
 func ConstructTriples(iter *iter) []ast.Triple {
 	var out []ast.Triple
 	out = append(out, TriplesSameSubject(iter)...)
-	if iter.peek().value == "." {
+	if iter.peek().Kind == scanner.PERIOD {
 		iter.next()
 		if predictConstructTriples(iter.peek()) {
 			out = append(out, ConstructTriples(iter)...)
@@ -1158,17 +1097,17 @@ func ConstructTriples(iter *iter) []ast.Triple {
 }
 
 func ConstructTemplate(iter *iter) ast.Node {
-	requireValue(iter, "{")
+	requireToken(iter, scanner.LBRACE)
 	var out ast.Node
 	if predictConstructTriples(iter.peek()) {
 		out = ConstructTriples(iter)
 	}
-	requireValue(iter, "}")
+	requireToken(iter, scanner.RBRACE)
 	return out
 }
 
 func ConstructQuery(iter *iter) ast.ConstructQuery {
-	requireValue(iter, "CONSTRUCT")
+	requireToken(iter, scanner.CONSTRUCT)
 
 	query := ast.ConstructQuery{}
 	query.Template = ConstructTemplate(iter)
@@ -1183,13 +1122,13 @@ func ConstructQuery(iter *iter) ast.ConstructQuery {
 func DescribeQuery(iter *iter) ast.DescribeQuery {
 	var query ast.DescribeQuery
 
-	requireValue(iter, "DESCRIBE")
+	requireToken(iter, scanner.DESCRIBE)
 	tok := iter.peek()
 	if predictVarOrIRIref(tok) {
 		for tok := iter.peek(); predictVarOrIRIref(tok); tok = iter.peek() {
 			query.Variables = append(query.Variables, VarOrIRIref(iter))
 		}
-	} else if tok.value == "*" {
+	} else if tok.Kind == scanner.MUL {
 		iter.next()
 		query.VarStar = true
 	} else {
@@ -1208,7 +1147,7 @@ func DescribeQuery(iter *iter) ast.DescribeQuery {
 func AskQuery(iter *iter) ast.AskQuery {
 	var query ast.AskQuery
 
-	requireValue(iter, "ASK")
+	requireToken(iter, scanner.ASK)
 	for tok := iter.peek(); predictDatasetClause(tok); tok = iter.peek() {
 		query.Froms = append(query.Froms, DatasetClause(iter))
 	}
@@ -1217,18 +1156,18 @@ func AskQuery(iter *iter) ast.AskQuery {
 }
 
 func Parse(in string) ast.Query {
-	iter := &iter{tokens: Lex(in)}
+	iter := &iter{tokens: scanner.Scan(in)}
 
 	query := ast.Query{}
 	query.Base, query.Prefixes = Prologue(iter)
-	switch tok := iter.peek(); tok.value {
-	case "SELECT":
+	switch tok := iter.peek(); tok.Kind {
+	case scanner.SELECT:
 		query.Query = SelectQuery(iter)
-	case "CONSTRUCT":
+	case scanner.CONSTRUCT:
 		query.Query = ConstructQuery(iter)
-	case "DESCRIBE":
+	case scanner.DESCRIBE:
 		query.Query = DescribeQuery(iter)
-	case "ASK":
+	case scanner.ASK:
 		query.Query = AskQuery(iter)
 	default:
 		panic(fmt.Sprintf("unexpected token %v", tok))
@@ -1236,72 +1175,6 @@ func Parse(in string) ast.Query {
 
 	return query
 }
-
-type pattern struct {
-	r     *regexp.Regexp
-	label string
-}
-
-var patterns = []pattern{
-	{regexp.MustCompile("^" + IRI_REF), "IRI_REF"},
-	{regexp.MustCompile("^" + PNAME_LN), "PNAME_LN"},
-	{regexp.MustCompile("^" + PNAME_NS), "PNAME_NS"},
-	{regexp.MustCompile("^" + BLANK_NODE_LABEL), "BLANK_NODE_LABEL"},
-	{regexp.MustCompile("^" + VAR1), "VAR1"},
-	{regexp.MustCompile("^" + VAR2), "VAR2"},
-	{regexp.MustCompile("^" + LANGTAG), "LANGTAG"},
-	{regexp.MustCompile("^" + INTEGER), "INTEGER"},
-	{regexp.MustCompile("^" + DECIMAL), "DECIMAL"},
-	{regexp.MustCompile("^" + DOUBLE), "DOUBLE"},
-	{regexp.MustCompile("^" + INTEGER_POSITIVE), "INTEGER_POSITIVE"},
-	{regexp.MustCompile("^" + DECIMAL_POSITIVE), "DECIMAL_POSITIVE"},
-	{regexp.MustCompile("^" + DOUBLE_POSITIVE), "DOUBLE_POSITIVE"},
-	{regexp.MustCompile("^" + INTEGER_NEGATIVE), "INTEGER_NEGATIVE"},
-	{regexp.MustCompile("^" + DECIMAL_NEGATIVE), "DECIMAL_NEGATIVE"},
-	{regexp.MustCompile("^" + DOUBLE_NEGATIVE), "DOUBLE_NEGATIVE"},
-	{regexp.MustCompile("^" + STRING_LITERAL1), "STRING_LITERAL1"},
-	{regexp.MustCompile("^" + STRING_LITERAL2), "STRING_LITERAL2"},
-	{regexp.MustCompile("^" + STRING_LITERAL_LONG1), "STRING_LITERAL_LONG1"},
-	{regexp.MustCompile("^" + STRING_LITERAL_LONG2), "STRING_LITERAL_LONG2"},
-	{regexp.MustCompile("^" + NIL), "NIL"},
-	{regexp.MustCompile("^" + ANON), "ANON"},
-	{regexp.MustCompile(`^\s+`), "whitespace"},
-	{regexp.MustCompile("^#.*"), "comment"},
-	{regexp.MustCompile(`^(\W|\w+)`), "word"},
-}
-
-// const IRI_REF = "(<([^<>\"{}\\|^`\\]-[\\x00-\\x20])*>)"
-const IRI_REF = "(<([^ <>])*>)"
-const PNAME_NS = "(" + PN_PREFIX + "?:)"
-const PNAME_LN = "(" + PNAME_NS + PN_LOCAL + ")"
-const BLANK_NODE_LABEL = "(_:" + PN_LOCAL + ")"
-const VAR1 = "(\\?" + VARNAME + ")"
-const VAR2 = "($" + VARNAME + ")"
-const LANGTAG = "(@[a-zA-Z]+(-[a-zA-Z0-9]+)*)"
-const INTEGER = "([0-9]+)"
-const DECIMAL = "([0-9]+\\.[0-9]*|\\.[0-9]+)"
-const DOUBLE = "([0-9]+\\.[0-9]*" + EXPONENT + "|\\.([0-9])+" + EXPONENT + "|([0-9])+" + EXPONENT + ")"
-const INTEGER_POSITIVE = "(\\+" + INTEGER + ")"
-const DECIMAL_POSITIVE = "(\\+" + DECIMAL + ")"
-const DOUBLE_POSITIVE = "(\\+" + DOUBLE + ")"
-const INTEGER_NEGATIVE = "(-" + INTEGER + ")"
-const DECIMAL_NEGATIVE = "(-" + DECIMAL + ")"
-const DOUBLE_NEGATIVE = "(-" + DOUBLE + ")"
-const EXPONENT = "([eE][+-]?[0-9]+)"
-const STRING_LITERAL1 = "('(([^\\x27\\x5C\\x0A\\x0D])|" + ECHAR + ")*?')"
-const STRING_LITERAL2 = `("(([^'\x5C\n\r])|` + ECHAR + `)*?")`
-const STRING_LITERAL_LONG1 = "('''(('|'')?([^'\\\\]|" + ECHAR + "))*?''')"
-const STRING_LITERAL_LONG2 = "(\"\"\"((\"|\"\")?([^\"\\\\]|" + ECHAR + "))*?\"\"\")"
-const ECHAR = `(\\[tbnrf"'])`
-const NIL = "(\\(" + WS + "*\\))"
-const WS = "(\\x20|\\x09|\\x0D|\\x0A)"
-const ANON = "(\\[" + WS + "*\\])"
-const PN_CHARS_BASE = `([A-Z]|[a-z]|[\x{00C0}-\x{00D6}]|[\x{00D8}-\x{00F6}]|[\x{00F8}-\x{02FF}]|[\x{0370}-\x{037D}]|[\x{037F}-\x{1FFF}]|[\x{200C}-\x{200D}]|[\x{2070}-\x{218F}]|[\x{2C00}-\x{2FEF}]|[\x{3001}-\x{D7FF}]|[\x{F900}-\x{FDCF}]|[\x{FDF0}-\x{FFFD}]|[\x{10000}-\x{EFFFF}])`
-const PN_CHARS_U = "(" + PN_CHARS_BASE + "|_)"
-const VARNAME = "((" + PN_CHARS_U + "|[0-9])(" + PN_CHARS_U + "|[0-9]|\\x{00B7}|[\\x{0300}-\\x{036F}]|[\\x{203F}-\\x{2040}])*)"
-const PN_CHARS = "(" + PN_CHARS_U + "|-|[0-9]|\\x{00B7}|[\\x{0300}-\\x{036F}]|[\\x{203F}-\\x{2040}])"
-const PN_PREFIX = "(" + PN_CHARS_BASE + "((" + PN_CHARS + "|\\.)*" + PN_CHARS + ")?)"
-const PN_LOCAL = "((" + PN_CHARS_U + "|[0-9])((" + PN_CHARS + "|\\.)*" + PN_CHARS + ")?)"
 
 func main() {
 	in := `PREFIX foaf: <http://xmlns.com/foaf/0.1/>
