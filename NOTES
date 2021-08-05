@@ -7,6 +7,10 @@
   This will need special considerations.
 ** Allow automatic use of adapters
    The user shouldn't need to write their queries around what data is internal vs what data is external.
+
+   If we forego the "automatic" part, we could probably use vanilla SPARQL federation (https://www.w3.org/TR/sparql11-federated-query/).
+   We could always go with that first, then solve automatic federation later.
+   There's also some existing research on automatic federation (which I currently cannot find).
 ** Allow JOINs between adapters, without absurd query costs
    A query like "find all artists born in all cities that currently have rain" is not feasible if we have to query multiple APIs.
    Such queries will probably need to include local information so that we can reduce the number of calls we need to make to APIs.
