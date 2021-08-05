@@ -1,0 +1,18 @@
+* Adapters
+  A lot of interesting data is external and does not offer SPARQL endpoints.
+  Not all of that data can be imported into our triplestore, either.
+  Either because it's too much data, or because it's highly dynamic.
+
+  We'll need adapters that can translate between SPARQL and external APIs.
+  This will need special considerations.
+** Allow automatic use of adapters
+   The user shouldn't need to write their queries around what data is internal vs what data is external.
+** Allow JOINs between adapters, without absurd query costs
+   A query like "find all artists born in all cities that currently have rain" is not feasible if we have to query multiple APIs.
+   Such queries will probably need to include local information so that we can reduce the number of calls we need to make to APIs.
+   This is related to the topic of query planning.
+* Importing data
+  Not all external data has to go through adapters.
+  For example, when we index movies on the local file system, we can import the most important information (such as title, release year, actors, …) into our triplestore.
+  This will allow us to answer most queries without having to call out to APIs.
+
