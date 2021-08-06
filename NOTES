@@ -24,3 +24,17 @@
   https://doi.org/10.1109/RIVF.2007.369129 - Towards Ontology-based Semantic File Systems
   https://doi.org/10.48084/etasr.1898 - The Design and Development of a Semantic File System Ontology
   https://doi.org/10.1145/121132.121138 - Semantic file systems
+
+* External datasets we may want to make use of
+** OpenStreetMap
+   Has a SPARQL endpoint at https://sophox.org/
+** MusicBrainz
+   Used to have a SPARQL endpoint via the LinkedBrainz project, but that seems to be dead.
+   The entire dataset is available as SQL dumps, so we could host our own kind of LinkedBrainz/tell users to self-host, as a more powerful alternative to using the API
+** IMDB
+   Publishes some of their data at https://www.imdb.com/interfaces/, free for personal use
+** TMDB
+   Has a data dump of IDs only, would be limited to using their API
+** Wikidata
+   https://query.wikidata.org/
+
