@@ -20,3 +20,7 @@
   For example, when we index movies on the local file system, we can import the most important information (such as title, release year, actors, …) into our triplestore.
   This will allow us to answer most queries without having to call out to APIs.
 
+* Related research
+  https://doi.org/10.1109/RIVF.2007.369129 - Towards Ontology-based Semantic File Systems
+  https://doi.org/10.48084/etasr.1898 - The Design and Development of a Semantic File System Ontology
+  https://doi.org/10.1145/121132.121138 - Semantic file systems
