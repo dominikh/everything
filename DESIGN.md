@@ -29,3 +29,19 @@ Note that we really do mean Linux, not Unix-likes.
 ## Desktops
 The end-user will manage and use _Everything_ from their desktop system.
 There will not be a centrally managed instance that is shared by many users, nor will there be browser-based UIs.
+
+# Data storage
+TODO.
+
+- Why not plain tags?
+- Why graphs instead of relational database?
+- Why triples instead of property graphs?
+- Why RDF?
+
+# UI
+## Interactivity in indexing
+Indexing gets complicated by ambiguities.
+Movie files without existing metadata get tagged based on their file names, which might not have unique results.
+A file being overwritten may mean user-applied tags are no longer valid, but it might also not.
+Instead of trying to solve all of these problems automatically, accept that sometimes we'll need user input.
+Provide a list of open questions and a way to decide on them.
