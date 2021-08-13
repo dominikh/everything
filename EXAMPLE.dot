@@ -8,6 +8,8 @@
 // Note that this is a fictional example and that other scenarios are possible.
 // Especially the distinction between blue and red is arbitrary.
 //
+// Dotted edges refer to data in external datasets, such as MusicBrainz.
+//
 // It looks best laid out with 'neato'.
 digraph {
 	overlap = scale;
@@ -38,4 +40,33 @@ digraph {
 
 	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" [label=":depicts", color="blue"];
 	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "uuid:461c9a0a-61fe-4f03-aec8-5940f154ab2b" [label=":createdBy", color="blue"];
+
+	"uuid:26227b88-7695-4619-8cc3-48b3a1548eca" -> ":File" [label="rdfs:type", color="green"];
+	"uuid:26227b88-7695-4619-8cc3-48b3a1548eca" -> "\"/music/Rammstein\ -\ Herzeleid\ \(1998\)\ \[FLAC\]\ \{529\ 160-2\}/05\ -\ Seemann.flac\"^^xsd:string" [label=":filename", color="green"];
+	"uuid:26227b88-7695-4619-8cc3-48b3a1548eca" -> "mbid:b31e0659-a195-3573-8bc5-f8f49f3f9beb" [label=":isMusicbrainzTrack"];
+
+	{
+		// A fairly sparse subset of the kind of data we can link to via MusicBrainz
+
+		edge [style=dashed];
+		node [style=dashed];
+		"mbid:b31e0659-a195-3573-8bc5-f8f49f3f9beb" -> "mb:Track" [label="rdfs:type"];
+		"mbid:b31e0659-a195-3573-8bc5-f8f49f3f9beb" -> "mbid:1432b3ba-f294-437c-85dc-74c6bda5d575" [label="mb:isRecording"];
+
+		"mbid:1432b3ba-f294-437c-85dc-74c6bda5d575" -> "mb:Recording" [label="rdfs:type"];
+		"mbid:1432b3ba-f294-437c-85dc-74c6bda5d575" -> "mbid:61fe2ef2-2ca0-3054-99b4-67d46e66cbbf" [label="mb:isWork"];
+
+		"mbid:61fe2ef2-2ca0-3054-99b4-67d46e66cbbf" -> "mb:Work" [label="rdfs:type"];
+
+		"mbid:b2349c8c-4986-4d4e-b2a0-285825f686c3" -> "mb:Release" [label="rdfs:type"];
+		"mbid:b2349c8c-4986-4d4e-b2a0-285825f686c3" -> "\"Herzleid\"^^xsd:string" [label="mb:name"];
+		"mbid:b2349c8c-4986-4d4e-b2a0-285825f686c3" -> "mbid:b2d122f9-eadb-4930-a196-8f221eeb0c66" [label="mb:artist"];
+		"mbid:b2349c8c-4986-4d4e-b2a0-285825f686c3" -> "mbid:b31e0659-a195-3573-8bc5-f8f49f3f9beb" [label="mb:hasTrack"];
+
+		"mbid:b31e0659-a195-3573-8bc5-f8f49f3f9beb" -> "\"Seemann\"^^xsd:string" [label="mb:name"];
+		"mbid:b31e0659-a195-3573-8bc5-f8f49f3f9beb" -> "5" [label="mb:trackNumber"];
+
+		"mbid:b2d122f9-eadb-4930-a196-8f221eeb0c66" -> "mb:Artist" [label="rdfs:type"];
+		"mbid:b2d122f9-eadb-4930-a196-8f221eeb0c66" -> "\"Rammstein\"^^xsd:string" [label="mb:name"];
+	}
 }
