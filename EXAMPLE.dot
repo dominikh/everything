@@ -1,0 +1,41 @@
+// This graph shows an example RDF graph of a subset of an indexed file system.
+// This example doesn't use a real vocabulary or ontology;
+// it's meant to show the overall structure and kinds of relationships we want to express.
+//
+// Green edges depict properties that the software will determine automatically.
+// Blue edges depict properties that the user has entered explicitly.
+// Red edges depict properties that the user imported from an external data source.
+// Note that this is a fictional example and that other scenarios are possible.
+// Especially the distinction between blue and red is arbitrary.
+//
+// It looks best laid out with 'neato'.
+digraph {
+	overlap = scale;
+
+	":File" -> "rdfs:Class" [label="rdfs:type", color="green"];
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> ":File" [label="rdfs:type", color="green"];
+
+	// Ideally we'd use file:// instead of literals.
+	// But to make the IRIs unique we need to include hostnames,
+	// and we haven't even decided yet how we'll handle remote file systems.
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "\"/home/dominikh/video.mkv\"^^xsd:string" [label=":filename", color="green"];
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "\"/home/dominikh/copy.mkv\"^^xsd:string" [label=":filename", color="green"];
+
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "\"13899214\"^^xsd:integer" [label=":inode", color="green"];
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "sha256:6dd0df9c973df5d617de37916b11f50620ffabaf7ac2733672e8febd4f450c34" [label=":checksum", color="green"];
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "\"15083601\"^^xsd:integer" [label=":size", color="green"];
+	// Here we would encode a lot more metadata. Mimetype, file permissions, whatever metadata is present in the file container, …
+
+	"uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" -> "foaf:Person" [label="rdfs:type", color="red"];
+	"uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" -> "mailto:dominik@honnef.co" [label="foaf:inbox", color="red"];
+	"uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" -> "\"Dominik Honnef\"^^xsd:string" [label="foaf:name", color="red"];
+
+	"uuid:461c9a0a-61fe-4f03-aec8-5940f154ab2b" -> "foaf:Person" [label="rdfs:type", color="red"];
+	"uuid:461c9a0a-61fe-4f03-aec8-5940f154ab2b" -> "\"John Doe\"^^xsd:string" [label="foaf:name", color="red"];
+
+	"uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" -> "uuid:461c9a0a-61fe-4f03-aec8-5940f154ab2b" [label="knows", color="red"];
+	"uuid:461c9a0a-61fe-4f03-aec8-5940f154ab2b" -> "uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" [label="knows", color="red"];
+
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "uuid:4a97b449-4a9d-476e-ab21-095241f8d80b" [label=":depicts", color="blue"];
+	"uuid:aa8cd828-1431-4e52-992c-a235ccfc7efc" -> "uuid:461c9a0a-61fe-4f03-aec8-5940f154ab2b" [label=":createdBy", color="blue"];
+}
